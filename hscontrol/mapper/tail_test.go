@@ -89,9 +89,7 @@ func TestTailNode(t *testing.T) {
 				DiscoKey: mustDK(
 					"discokey:cf7b0fd05da556fdc3bab365787b506fd82d64a70745db70e00e86c1b1c03084",
 				),
-				IPAddresses: []netip.Addr{
-					netip.MustParseAddr("100.64.0.1"),
-				},
+				IPv4:      iap("100.64.0.1"),
 				Hostname:  "mini",
 				GivenName: "mini",
 				UserID:    0,
@@ -182,13 +180,16 @@ func TestTailNode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			cfg := &types.Config{
+				BaseDomain:          tt.baseDomain,
+				DNSConfig:           tt.dnsConfig,
+				RandomizeClientPort: false,
+			}
 			got, err := tailNode(
 				tt.node,
 				0,
 				tt.pol,
-				tt.dnsConfig,
-				tt.baseDomain,
-				false,
+				cfg,
 			)
 
 			if (err != nil) != tt.wantErr {

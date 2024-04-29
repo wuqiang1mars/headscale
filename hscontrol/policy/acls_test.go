@@ -16,6 +16,11 @@ import (
 	"tailscale.com/tailcfg"
 )
 
+var iap = func(ipStr string) *netip.Addr {
+	ip := netip.MustParseAddr(ipStr)
+	return &ip
+}
+
 func Test(t *testing.T) {
 	check.TestingT(t)
 }
@@ -385,15 +390,12 @@ acls:
 				return
 			}
 
-			rules, err := pol.generateFilterRules(&types.Node{
-				IPAddresses: types.NodeAddresses{
-					netip.MustParseAddr("100.100.100.100"),
-				},
-			}, types.Nodes{
+			rules, err := pol.CompileFilterRules(types.Nodes{
 				&types.Node{
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("200.200.200.200"),
-					},
+					IPv4: iap("100.100.100.100"),
+				},
+				&types.Node{
+					IPv4: iap("200.200.200.200"),
 					User: types.User{
 						Name: "testuser",
 					},
@@ -546,7 +548,7 @@ func (s *Suite) TestRuleInvalidGeneration(c *check.C) {
 	c.Assert(pol.ACLs, check.HasLen, 6)
 	c.Assert(err, check.IsNil)
 
-	rules, err := pol.generateFilterRules(&types.Node{}, types.Nodes{})
+	rules, err := pol.CompileFilterRules(types.Nodes{})
 	c.Assert(err, check.NotNil)
 	c.Assert(rules, check.IsNil)
 }
@@ -562,7 +564,7 @@ func (s *Suite) TestInvalidAction(c *check.C) {
 			},
 		},
 	}
-	_, _, err := GenerateFilterAndSSHRules(pol, &types.Node{}, types.Nodes{})
+	_, _, err := GenerateFilterAndSSHRulesForTests(pol, &types.Node{}, types.Nodes{})
 	c.Assert(errors.Is(err, ErrInvalidAction), check.Equals, true)
 }
 
@@ -581,7 +583,7 @@ func (s *Suite) TestInvalidGroupInGroup(c *check.C) {
 			},
 		},
 	}
-	_, _, err := GenerateFilterAndSSHRules(pol, &types.Node{}, types.Nodes{})
+	_, _, err := GenerateFilterAndSSHRulesForTests(pol, &types.Node{}, types.Nodes{})
 	c.Assert(errors.Is(err, ErrInvalidGroup), check.Equals, true)
 }
 
@@ -597,7 +599,7 @@ func (s *Suite) TestInvalidTagOwners(c *check.C) {
 		},
 	}
 
-	_, _, err := GenerateFilterAndSSHRules(pol, &types.Node{}, types.Nodes{})
+	_, _, err := GenerateFilterAndSSHRulesForTests(pol, &types.Node{}, types.Nodes{})
 	c.Assert(errors.Is(err, ErrInvalidTag), check.Equals, true)
 }
 
@@ -996,12 +998,10 @@ func Test_expandAlias(t *testing.T) {
 				alias: "*",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.1")},
+						IPv4: iap("100.64.0.1"),
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.78.84.227"),
-						},
+						IPv4: iap("100.78.84.227"),
 					},
 				},
 			},
@@ -1022,27 +1022,19 @@ func Test_expandAlias(t *testing.T) {
 				alias: "group:accountant",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4: iap("100.64.0.4"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -1063,27 +1055,19 @@ func Test_expandAlias(t *testing.T) {
 				alias: "group:hr",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4: iap("100.64.0.4"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -1128,9 +1112,7 @@ func Test_expandAlias(t *testing.T) {
 				alias: "10.0.0.1",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("10.0.0.1"),
-						},
+						IPv4: iap("10.0.0.1"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -1149,10 +1131,8 @@ func Test_expandAlias(t *testing.T) {
 				alias: "10.0.0.1",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("10.0.0.1"),
-							netip.MustParseAddr("fd7a:115c:a1e0:ab12:4843:2222:6273:2222"),
-						},
+						IPv4: iap("10.0.0.1"),
+						IPv6: iap("fd7a:115c:a1e0:ab12:4843:2222:6273:2222"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -1171,10 +1151,8 @@ func Test_expandAlias(t *testing.T) {
 				alias: "fd7a:115c:a1e0:ab12:4843:2222:6273:2222",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("10.0.0.1"),
-							netip.MustParseAddr("fd7a:115c:a1e0:ab12:4843:2222:6273:2222"),
-						},
+						IPv4: iap("10.0.0.1"),
+						IPv6: iap("fd7a:115c:a1e0:ab12:4843:2222:6273:2222"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -1240,9 +1218,7 @@ func Test_expandAlias(t *testing.T) {
 				alias: "tag:hr-webserver",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1251,9 +1227,7 @@ func Test_expandAlias(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1262,15 +1236,11 @@ func Test_expandAlias(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4: iap("100.64.0.4"),
 						User: types.User{Name: "joe"},
 					},
 				},
@@ -1294,27 +1264,19 @@ func Test_expandAlias(t *testing.T) {
 				alias: "tag:hr-webserver",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4: iap("100.64.0.4"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -1331,29 +1293,21 @@ func Test_expandAlias(t *testing.T) {
 				alias: "tag:hr-webserver",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4:       iap("100.64.0.1"),
 						User:       types.User{Name: "joe"},
 						ForcedTags: []string{"tag:hr-webserver"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4:       iap("100.64.0.2"),
 						User:       types.User{Name: "joe"},
 						ForcedTags: []string{"tag:hr-webserver"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4: iap("100.64.0.4"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -1374,16 +1328,12 @@ func Test_expandAlias(t *testing.T) {
 				alias: "tag:hr-webserver",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4:       iap("100.64.0.1"),
 						User:       types.User{Name: "joe"},
 						ForcedTags: []string{"tag:hr-webserver"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1392,15 +1342,11 @@ func Test_expandAlias(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4: iap("100.64.0.4"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -1419,9 +1365,7 @@ func Test_expandAlias(t *testing.T) {
 				alias: "joe",
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1430,9 +1374,7 @@ func Test_expandAlias(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1441,16 +1383,12 @@ func Test_expandAlias(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						IPv4:     iap("100.64.0.3"),
 						User:     types.User{Name: "marc"},
 						Hostinfo: &tailcfg.Hostinfo{},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4:     iap("100.64.0.4"),
 						User:     types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{},
 					},
@@ -1498,9 +1436,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 				},
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1509,9 +1445,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1520,9 +1454,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4:     iap("100.64.0.4"),
 						User:     types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{},
 					},
@@ -1531,9 +1463,9 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 			},
 			want: types.Nodes{
 				&types.Node{
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.4")},
-					User:        types.User{Name: "joe"},
-					Hostinfo:    &tailcfg.Hostinfo{},
+					IPv4:     iap("100.64.0.4"),
+					User:     types.User{Name: "joe"},
+					Hostinfo: &tailcfg.Hostinfo{},
 				},
 			},
 		},
@@ -1550,9 +1482,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 				},
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1561,9 +1491,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1572,9 +1500,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4:     iap("100.64.0.4"),
 						User:     types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{},
 					},
@@ -1583,9 +1509,9 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 			},
 			want: types.Nodes{
 				&types.Node{
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.4")},
-					User:        types.User{Name: "joe"},
-					Hostinfo:    &tailcfg.Hostinfo{},
+					IPv4:     iap("100.64.0.4"),
+					User:     types.User{Name: "joe"},
+					Hostinfo: &tailcfg.Hostinfo{},
 				},
 			},
 		},
@@ -1597,9 +1523,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 				},
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1608,17 +1532,13 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4:       iap("100.64.0.2"),
 						User:       types.User{Name: "joe"},
 						ForcedTags: []string{"tag:accountant-webserver"},
 						Hostinfo:   &tailcfg.Hostinfo{},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4:     iap("100.64.0.4"),
 						User:     types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{},
 					},
@@ -1627,9 +1547,9 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 			},
 			want: types.Nodes{
 				&types.Node{
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.4")},
-					User:        types.User{Name: "joe"},
-					Hostinfo:    &tailcfg.Hostinfo{},
+					IPv4:     iap("100.64.0.4"),
+					User:     types.User{Name: "joe"},
+					Hostinfo: &tailcfg.Hostinfo{},
 				},
 			},
 		},
@@ -1641,9 +1561,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 				},
 				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1652,9 +1570,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{
 							OS:          "centos",
@@ -1663,9 +1579,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 						},
 					},
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-						},
+						IPv4:     iap("100.64.0.4"),
 						User:     types.User{Name: "joe"},
 						Hostinfo: &tailcfg.Hostinfo{},
 					},
@@ -1674,9 +1588,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 			},
 			want: types.Nodes{
 				&types.Node{
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.1"),
-					},
+					IPv4: iap("100.64.0.1"),
 					User: types.User{Name: "joe"},
 					Hostinfo: &tailcfg.Hostinfo{
 						OS:          "centos",
@@ -1685,9 +1597,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 					},
 				},
 				&types.Node{
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.2"),
-					},
+					IPv4: iap("100.64.0.2"),
 					User: types.User{Name: "joe"},
 					Hostinfo: &tailcfg.Hostinfo{
 						OS:          "centos",
@@ -1696,9 +1606,7 @@ func Test_excludeCorrectlyTaggedNodes(t *testing.T) {
 					},
 				},
 				&types.Node{
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.4"),
-					},
+					IPv4:     iap("100.64.0.4"),
 					User:     types.User{Name: "joe"},
 					Hostinfo: &tailcfg.Hostinfo{},
 				},
@@ -1724,8 +1632,7 @@ func TestACLPolicy_generateFilterRules(t *testing.T) {
 		pol ACLPolicy
 	}
 	type args struct {
-		node  *types.Node
-		peers types.Nodes
+		nodes types.Nodes
 	}
 	tests := []struct {
 		name    string
@@ -1755,13 +1662,12 @@ func TestACLPolicy_generateFilterRules(t *testing.T) {
 				},
 			},
 			args: args{
-				node: &types.Node{
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.1"),
-						netip.MustParseAddr("fd7a:115c:a1e0:ab12:4843:2222:6273:2221"),
+				nodes: types.Nodes{
+					&types.Node{
+						IPv4: iap("100.64.0.1"),
+						IPv6: iap("fd7a:115c:a1e0:ab12:4843:2222:6273:2221"),
 					},
 				},
-				peers: types.Nodes{},
 			},
 			want: []tailcfg.FilterRule{
 				{
@@ -1800,19 +1706,15 @@ func TestACLPolicy_generateFilterRules(t *testing.T) {
 				},
 			},
 			args: args{
-				node: &types.Node{
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.1"),
-						netip.MustParseAddr("fd7a:115c:a1e0:ab12:4843:2222:6273:2221"),
-					},
-					User: types.User{Name: "mickael"},
-				},
-				peers: types.Nodes{
+				nodes: types.Nodes{
 					&types.Node{
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-							netip.MustParseAddr("fd7a:115c:a1e0:ab12:4843:2222:6273:2222"),
-						},
+						IPv4: iap("100.64.0.1"),
+						IPv6: iap("fd7a:115c:a1e0:ab12:4843:2222:6273:2221"),
+						User: types.User{Name: "mickael"},
+					},
+					&types.Node{
+						IPv4: iap("100.64.0.2"),
+						IPv6: iap("fd7a:115c:a1e0:ab12:4843:2222:6273:2222"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -1846,9 +1748,8 @@ func TestACLPolicy_generateFilterRules(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.field.pol.generateFilterRules(
-				tt.args.node,
-				tt.args.peers,
+			got, err := tt.field.pol.CompileFilterRules(
+				tt.args.nodes,
 			)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ACLgenerateFilterRules() error = %v, wantErr %v", err, tt.wantErr)
@@ -1884,18 +1785,14 @@ func TestReduceFilterRules(t *testing.T) {
 				},
 			},
 			node: &types.Node{
-				IPAddresses: types.NodeAddresses{
-					netip.MustParseAddr("100.64.0.1"),
-					netip.MustParseAddr("fd7a:115c:a1e0:ab12:4843:2222:6273:2221"),
-				},
+				IPv4: iap("100.64.0.1"),
+				IPv6: iap("fd7a:115c:a1e0:ab12:4843:2222:6273:2221"),
 				User: types.User{Name: "mickael"},
 			},
 			peers: types.Nodes{
 				&types.Node{
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.2"),
-						netip.MustParseAddr("fd7a:115c:a1e0:ab12:4843:2222:6273:2222"),
-					},
+					IPv4: iap("100.64.0.2"),
+					IPv6: iap("fd7a:115c:a1e0:ab12:4843:2222:6273:2222"),
 					User: types.User{Name: "mickael"},
 				},
 			},
@@ -1921,10 +1818,8 @@ func TestReduceFilterRules(t *testing.T) {
 				},
 			},
 			node: &types.Node{
-				IPAddresses: types.NodeAddresses{
-					netip.MustParseAddr("100.64.0.1"),
-					netip.MustParseAddr("fd7a:115c:a1e0::1"),
-				},
+				IPv4: iap("100.64.0.1"),
+				IPv6: iap("fd7a:115c:a1e0::1"),
 				User: types.User{Name: "user1"},
 				Hostinfo: &tailcfg.Hostinfo{
 					RoutableIPs: []netip.Prefix{
@@ -1934,10 +1829,8 @@ func TestReduceFilterRules(t *testing.T) {
 			},
 			peers: types.Nodes{
 				&types.Node{
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.2"),
-						netip.MustParseAddr("fd7a:115c:a1e0::2"),
-					},
+					IPv4: iap("100.64.0.2"),
+					IPv6: iap("fd7a:115c:a1e0::2"),
 					User: types.User{Name: "user1"},
 				},
 			},
@@ -1980,9 +1873,8 @@ func TestReduceFilterRules(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rules, _ := tt.pol.generateFilterRules(
-				tt.node,
-				tt.peers,
+			rules, _ := tt.pol.CompileFilterRules(
+				append(tt.peers, tt.node),
 			)
 
 			got := ReduceFilterRules(tt.node, rules)
@@ -2154,24 +2046,18 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: types.Nodes{ // list of all nodess in the database
 					&types.Node{
-						ID: 1,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						ID:   1,
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						ID: 2,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						ID:   2,
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						ID: 3,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						ID:   3,
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -2184,21 +2070,21 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					},
 				},
 				node: &types.Node{ // current nodes
-					ID:          1,
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.1")},
-					User:        types.User{Name: "joe"},
+					ID:   1,
+					IPv4: iap("100.64.0.1"),
+					User: types.User{Name: "joe"},
 				},
 			},
 			want: types.Nodes{
 				&types.Node{
-					ID:          2,
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.2")},
-					User:        types.User{Name: "marc"},
+					ID:   2,
+					IPv4: iap("100.64.0.2"),
+					User: types.User{Name: "marc"},
 				},
 				&types.Node{
-					ID:          3,
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.3")},
-					User:        types.User{Name: "mickael"},
+					ID:   3,
+					IPv4: iap("100.64.0.3"),
+					User: types.User{Name: "mickael"},
 				},
 			},
 		},
@@ -2207,24 +2093,18 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: types.Nodes{ // list of all nodess in the database
 					&types.Node{
-						ID: 1,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						ID:   1,
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						ID: 2,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						ID:   2,
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						ID: 3,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						ID:   3,
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -2237,16 +2117,16 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					},
 				},
 				node: &types.Node{ // current nodes
-					ID:          1,
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.1")},
-					User:        types.User{Name: "joe"},
+					ID:   1,
+					IPv4: iap("100.64.0.1"),
+					User: types.User{Name: "joe"},
 				},
 			},
 			want: types.Nodes{
 				&types.Node{
-					ID:          2,
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.2")},
-					User:        types.User{Name: "marc"},
+					ID:   2,
+					IPv4: iap("100.64.0.2"),
+					User: types.User{Name: "marc"},
 				},
 			},
 		},
@@ -2255,24 +2135,18 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: types.Nodes{ // list of all nodess in the database
 					&types.Node{
-						ID: 1,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						ID:   1,
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						ID: 2,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						ID:   2,
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						ID: 3,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						ID:   3,
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -2285,16 +2159,16 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					},
 				},
 				node: &types.Node{ // current nodes
-					ID:          2,
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.2")},
-					User:        types.User{Name: "marc"},
+					ID:   2,
+					IPv4: iap("100.64.0.2"),
+					User: types.User{Name: "marc"},
 				},
 			},
 			want: types.Nodes{
 				&types.Node{
-					ID:          3,
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.3")},
-					User:        types.User{Name: "mickael"},
+					ID:   3,
+					IPv4: iap("100.64.0.3"),
+					User: types.User{Name: "mickael"},
 				},
 			},
 		},
@@ -2303,24 +2177,18 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: types.Nodes{ // list of all nodess in the database
 					&types.Node{
-						ID: 1,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						ID:   1,
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						ID: 2,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						ID:   2,
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						ID: 3,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						ID:   3,
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -2333,19 +2201,15 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					},
 				},
 				node: &types.Node{ // current nodes
-					ID: 1,
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.1"),
-					},
+					ID:   1,
+					IPv4: iap("100.64.0.1"),
 					User: types.User{Name: "joe"},
 				},
 			},
 			want: types.Nodes{
 				&types.Node{
-					ID: 2,
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.2"),
-					},
+					ID:   2,
+					IPv4: iap("100.64.0.2"),
 					User: types.User{Name: "marc"},
 				},
 			},
@@ -2355,24 +2219,18 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: types.Nodes{ // list of all nodess in the database
 					&types.Node{
-						ID: 1,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						ID:   1,
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						ID: 2,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						ID:   2,
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						ID: 3,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						ID:   3,
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -2385,26 +2243,20 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					},
 				},
 				node: &types.Node{ // current nodes
-					ID: 2,
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.2"),
-					},
+					ID:   2,
+					IPv4: iap("100.64.0.2"),
 					User: types.User{Name: "marc"},
 				},
 			},
 			want: types.Nodes{
 				&types.Node{
-					ID: 1,
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.1"),
-					},
+					ID:   1,
+					IPv4: iap("100.64.0.1"),
 					User: types.User{Name: "joe"},
 				},
 				&types.Node{
-					ID: 3,
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.3"),
-					},
+					ID:   3,
+					IPv4: iap("100.64.0.3"),
 					User: types.User{Name: "mickael"},
 				},
 			},
@@ -2414,24 +2266,18 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: types.Nodes{ // list of all nodess in the database
 					&types.Node{
-						ID: 1,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						ID:   1,
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						ID: 2,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						ID:   2,
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						ID: 3,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						ID:   3,
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "mickael"},
 					},
 				},
@@ -2444,23 +2290,21 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					},
 				},
 				node: &types.Node{ // current nodes
-					ID:          2,
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.2")},
-					User:        types.User{Name: "marc"},
+					ID:   2,
+					IPv4: iap("100.64.0.2"),
+					User: types.User{Name: "marc"},
 				},
 			},
 			want: types.Nodes{
 				&types.Node{
-					ID: 1,
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.1"),
-					},
+					ID:   1,
+					IPv4: iap("100.64.0.1"),
 					User: types.User{Name: "joe"},
 				},
 				&types.Node{
-					ID:          3,
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.3")},
-					User:        types.User{Name: "mickael"},
+					ID:   3,
+					IPv4: iap("100.64.0.3"),
+					User: types.User{Name: "mickael"},
 				},
 			},
 		},
@@ -2469,33 +2313,27 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: types.Nodes{ // list of all nodess in the database
 					&types.Node{
-						ID: 1,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-						},
+						ID:   1,
+						IPv4: iap("100.64.0.1"),
 						User: types.User{Name: "joe"},
 					},
 					&types.Node{
-						ID: 2,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-						},
+						ID:   2,
+						IPv4: iap("100.64.0.2"),
 						User: types.User{Name: "marc"},
 					},
 					&types.Node{
-						ID: 3,
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-						},
+						ID:   3,
+						IPv4: iap("100.64.0.3"),
 						User: types.User{Name: "mickael"},
 					},
 				},
 				rules: []tailcfg.FilterRule{ // list of all ACLRules registered
 				},
 				node: &types.Node{ // current nodes
-					ID:          2,
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.2")},
-					User:        types.User{Name: "marc"},
+					ID:   2,
+					IPv4: iap("100.64.0.2"),
+					User: types.User{Name: "marc"},
 				},
 			},
 			want: types.Nodes{},
@@ -2511,38 +2349,30 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					&types.Node{
 						ID:       1,
 						Hostname: "ts-head-upcrmb",
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.3"),
-							netip.MustParseAddr("fd7a:115c:a1e0::3"),
-						},
-						User: types.User{Name: "user1"},
+						IPv4:     iap("100.64.0.3"),
+						IPv6:     iap("fd7a:115c:a1e0::3"),
+						User:     types.User{Name: "user1"},
 					},
 					&types.Node{
 						ID:       2,
 						Hostname: "ts-unstable-rlwpvr",
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.4"),
-							netip.MustParseAddr("fd7a:115c:a1e0::4"),
-						},
-						User: types.User{Name: "user1"},
+						IPv4:     iap("100.64.0.4"),
+						IPv6:     iap("fd7a:115c:a1e0::4"),
+						User:     types.User{Name: "user1"},
 					},
 					&types.Node{
 						ID:       3,
 						Hostname: "ts-head-8w6paa",
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.1"),
-							netip.MustParseAddr("fd7a:115c:a1e0::1"),
-						},
-						User: types.User{Name: "user2"},
+						IPv4:     iap("100.64.0.1"),
+						IPv6:     iap("fd7a:115c:a1e0::1"),
+						User:     types.User{Name: "user2"},
 					},
 					&types.Node{
 						ID:       4,
 						Hostname: "ts-unstable-lys2ib",
-						IPAddresses: types.NodeAddresses{
-							netip.MustParseAddr("100.64.0.2"),
-							netip.MustParseAddr("fd7a:115c:a1e0::2"),
-						},
-						User: types.User{Name: "user2"},
+						IPv4:     iap("100.64.0.2"),
+						IPv6:     iap("fd7a:115c:a1e0::2"),
+						User:     types.User{Name: "user2"},
 					},
 				},
 				rules: []tailcfg.FilterRule{ // list of all ACLRules registered
@@ -2562,31 +2392,25 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 				node: &types.Node{ // current nodes
 					ID:       3,
 					Hostname: "ts-head-8w6paa",
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.1"),
-						netip.MustParseAddr("fd7a:115c:a1e0::1"),
-					},
-					User: types.User{Name: "user2"},
+					IPv4:     iap("100.64.0.1"),
+					IPv6:     iap("fd7a:115c:a1e0::1"),
+					User:     types.User{Name: "user2"},
 				},
 			},
 			want: types.Nodes{
 				&types.Node{
 					ID:       1,
 					Hostname: "ts-head-upcrmb",
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.3"),
-						netip.MustParseAddr("fd7a:115c:a1e0::3"),
-					},
-					User: types.User{Name: "user1"},
+					IPv4:     iap("100.64.0.3"),
+					IPv6:     iap("fd7a:115c:a1e0::3"),
+					User:     types.User{Name: "user1"},
 				},
 				&types.Node{
 					ID:       2,
 					Hostname: "ts-unstable-rlwpvr",
-					IPAddresses: types.NodeAddresses{
-						netip.MustParseAddr("100.64.0.4"),
-						netip.MustParseAddr("fd7a:115c:a1e0::4"),
-					},
-					User: types.User{Name: "user1"},
+					IPv4:     iap("100.64.0.4"),
+					IPv6:     iap("fd7a:115c:a1e0::4"),
+					User:     types.User{Name: "user1"},
 				},
 			},
 		},
@@ -2595,16 +2419,16 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: []*types.Node{
 					{
-						ID:          1,
-						IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.2")},
-						Hostname:    "peer1",
-						User:        types.User{Name: "mini"},
+						ID:       1,
+						IPv4:     iap("100.64.0.2"),
+						Hostname: "peer1",
+						User:     types.User{Name: "mini"},
 					},
 					{
-						ID:          2,
-						IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.3")},
-						Hostname:    "peer2",
-						User:        types.User{Name: "peer2"},
+						ID:       2,
+						IPv4:     iap("100.64.0.3"),
+						Hostname: "peer2",
+						User:     types.User{Name: "peer2"},
 					},
 				},
 				rules: []tailcfg.FilterRule{
@@ -2617,18 +2441,18 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					},
 				},
 				node: &types.Node{
-					ID:          0,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.1")},
-					Hostname:    "mini",
-					User:        types.User{Name: "mini"},
+					ID:       0,
+					IPv4:     iap("100.64.0.1"),
+					Hostname: "mini",
+					User:     types.User{Name: "mini"},
 				},
 			},
 			want: []*types.Node{
 				{
-					ID:          2,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.3")},
-					Hostname:    "peer2",
-					User:        types.User{Name: "peer2"},
+					ID:       2,
+					IPv4:     iap("100.64.0.3"),
+					Hostname: "peer2",
+					User:     types.User{Name: "peer2"},
 				},
 			},
 		},
@@ -2637,22 +2461,22 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: []*types.Node{
 					{
-						ID:          1,
-						IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.2")},
-						Hostname:    "user1-2",
-						User:        types.User{Name: "user1"},
+						ID:       1,
+						IPv4:     iap("100.64.0.2"),
+						Hostname: "user1-2",
+						User:     types.User{Name: "user1"},
 					},
 					{
-						ID:          0,
-						IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.1")},
-						Hostname:    "user1-1",
-						User:        types.User{Name: "user1"},
+						ID:       0,
+						IPv4:     iap("100.64.0.1"),
+						Hostname: "user1-1",
+						User:     types.User{Name: "user1"},
 					},
 					{
-						ID:          3,
-						IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.4")},
-						Hostname:    "user2-2",
-						User:        types.User{Name: "user2"},
+						ID:       3,
+						IPv4:     iap("100.64.0.4"),
+						Hostname: "user2-2",
+						User:     types.User{Name: "user2"},
 					},
 				},
 				rules: []tailcfg.FilterRule{
@@ -2686,30 +2510,30 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					},
 				},
 				node: &types.Node{
-					ID:          2,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.3")},
-					Hostname:    "user-2-1",
-					User:        types.User{Name: "user2"},
+					ID:       2,
+					IPv4:     iap("100.64.0.3"),
+					Hostname: "user-2-1",
+					User:     types.User{Name: "user2"},
 				},
 			},
 			want: []*types.Node{
 				{
-					ID:          1,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.2")},
-					Hostname:    "user1-2",
-					User:        types.User{Name: "user1"},
+					ID:       1,
+					IPv4:     iap("100.64.0.2"),
+					Hostname: "user1-2",
+					User:     types.User{Name: "user1"},
 				},
 				{
-					ID:          0,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.1")},
-					Hostname:    "user1-1",
-					User:        types.User{Name: "user1"},
+					ID:       0,
+					IPv4:     iap("100.64.0.1"),
+					Hostname: "user1-1",
+					User:     types.User{Name: "user1"},
 				},
 				{
-					ID:          3,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.4")},
-					Hostname:    "user2-2",
-					User:        types.User{Name: "user2"},
+					ID:       3,
+					IPv4:     iap("100.64.0.4"),
+					Hostname: "user2-2",
+					User:     types.User{Name: "user2"},
 				},
 			},
 		},
@@ -2718,22 +2542,22 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: []*types.Node{
 					{
-						ID:          1,
-						IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.2")},
-						Hostname:    "user1-2",
-						User:        types.User{Name: "user1"},
+						ID:       1,
+						IPv4:     iap("100.64.0.2"),
+						Hostname: "user1-2",
+						User:     types.User{Name: "user1"},
 					},
 					{
-						ID:          2,
-						IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.3")},
-						Hostname:    "user-2-1",
-						User:        types.User{Name: "user2"},
+						ID:       2,
+						IPv4:     iap("100.64.0.3"),
+						Hostname: "user-2-1",
+						User:     types.User{Name: "user2"},
 					},
 					{
-						ID:          3,
-						IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.4")},
-						Hostname:    "user2-2",
-						User:        types.User{Name: "user2"},
+						ID:       3,
+						IPv4:     iap("100.64.0.4"),
+						Hostname: "user2-2",
+						User:     types.User{Name: "user2"},
 					},
 				},
 				rules: []tailcfg.FilterRule{
@@ -2767,30 +2591,30 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					},
 				},
 				node: &types.Node{
-					ID:          0,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.1")},
-					Hostname:    "user1-1",
-					User:        types.User{Name: "user1"},
+					ID:       0,
+					IPv4:     iap("100.64.0.1"),
+					Hostname: "user1-1",
+					User:     types.User{Name: "user1"},
 				},
 			},
 			want: []*types.Node{
 				{
-					ID:          1,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.2")},
-					Hostname:    "user1-2",
-					User:        types.User{Name: "user1"},
+					ID:       1,
+					IPv4:     iap("100.64.0.2"),
+					Hostname: "user1-2",
+					User:     types.User{Name: "user1"},
 				},
 				{
-					ID:          2,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.3")},
-					Hostname:    "user-2-1",
-					User:        types.User{Name: "user2"},
+					ID:       2,
+					IPv4:     iap("100.64.0.3"),
+					Hostname: "user-2-1",
+					User:     types.User{Name: "user2"},
 				},
 				{
-					ID:          3,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.4")},
-					Hostname:    "user2-2",
-					User:        types.User{Name: "user2"},
+					ID:       3,
+					IPv4:     iap("100.64.0.4"),
+					Hostname: "user2-2",
+					User:     types.User{Name: "user2"},
 				},
 			},
 		},
@@ -2800,16 +2624,16 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 			args: args{
 				nodes: []*types.Node{
 					{
-						ID:          1,
-						IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.1")},
-						Hostname:    "user1",
-						User:        types.User{Name: "user1"},
+						ID:       1,
+						IPv4:     iap("100.64.0.1"),
+						Hostname: "user1",
+						User:     types.User{Name: "user1"},
 					},
 					{
-						ID:          2,
-						IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.2")},
-						Hostname:    "router",
-						User:        types.User{Name: "router"},
+						ID:       2,
+						IPv4:     iap("100.64.0.2"),
+						Hostname: "router",
+						User:     types.User{Name: "router"},
 						Routes: types.Routes{
 							types.Route{
 								NodeID:    2,
@@ -2831,18 +2655,18 @@ func Test_getFilteredByACLPeers(t *testing.T) {
 					},
 				},
 				node: &types.Node{
-					ID:          1,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.1")},
-					Hostname:    "user1",
-					User:        types.User{Name: "user1"},
+					ID:       1,
+					IPv4:     iap("100.64.0.1"),
+					Hostname: "user1",
+					User:     types.User{Name: "user1"},
 				},
 			},
 			want: []*types.Node{
 				{
-					ID:          2,
-					IPAddresses: []netip.Addr{netip.MustParseAddr("100.64.0.2")},
-					Hostname:    "router",
-					User:        types.User{Name: "router"},
+					ID:       2,
+					IPv4:     iap("100.64.0.2"),
+					Hostname: "router",
+					User:     types.User{Name: "router"},
 					Routes: types.Routes{
 						types.Route{
 							NodeID:    2,
@@ -2883,23 +2707,23 @@ func TestSSHRules(t *testing.T) {
 		node  types.Node
 		peers types.Nodes
 		pol   ACLPolicy
-		want  []*tailcfg.SSHRule
+		want  *tailcfg.SSHPolicy
 	}{
 		{
 			name: "peers-can-connect",
 			node: types.Node{
-				Hostname:    "testnodes",
-				IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.99.42")},
-				UserID:      0,
+				Hostname: "testnodes",
+				IPv4:     iap("100.64.99.42"),
+				UserID:   0,
 				User: types.User{
 					Name: "user1",
 				},
 			},
 			peers: types.Nodes{
 				&types.Node{
-					Hostname:    "testnodes2",
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.1")},
-					UserID:      0,
+					Hostname: "testnodes2",
+					IPv4:     iap("100.64.0.1"),
+					UserID:   0,
 					User: types.User{
 						Name: "user1",
 					},
@@ -2946,7 +2770,7 @@ func TestSSHRules(t *testing.T) {
 					},
 				},
 			},
-			want: []*tailcfg.SSHRule{
+			want: &tailcfg.SSHPolicy{Rules: []*tailcfg.SSHRule{
 				{
 					Principals: []*tailcfg.SSHPrincipal{
 						{
@@ -2991,23 +2815,23 @@ func TestSSHRules(t *testing.T) {
 					},
 					Action: &tailcfg.SSHAction{Accept: true, AllowLocalPortForwarding: true},
 				},
-			},
+			}},
 		},
 		{
 			name: "peers-cannot-connect",
 			node: types.Node{
-				Hostname:    "testnodes",
-				IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.1")},
-				UserID:      0,
+				Hostname: "testnodes",
+				IPv4:     iap("100.64.0.1"),
+				UserID:   0,
 				User: types.User{
 					Name: "user1",
 				},
 			},
 			peers: types.Nodes{
 				&types.Node{
-					Hostname:    "testnodes2",
-					IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.99.42")},
-					UserID:      0,
+					Hostname: "testnodes2",
+					IPv4:     iap("100.64.99.42"),
+					UserID:   0,
 					User: types.User{
 						Name: "user1",
 					},
@@ -3042,13 +2866,13 @@ func TestSSHRules(t *testing.T) {
 					},
 				},
 			},
-			want: []*tailcfg.SSHRule{},
+			want: &tailcfg.SSHPolicy{Rules: []*tailcfg.SSHRule{}},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.pol.generateSSHRules(&tt.node, tt.peers)
+			got, err := tt.pol.CompileSSHPolicy(&tt.node, tt.peers)
 			assert.NoError(t, err)
 
 			if diff := cmp.Diff(tt.want, got); diff != "" {
@@ -3132,10 +2956,10 @@ func TestValidExpandTagOwnersInSources(t *testing.T) {
 	}
 
 	node := &types.Node{
-		ID:          0,
-		Hostname:    "testnodes",
-		IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.1")},
-		UserID:      0,
+		ID:       0,
+		Hostname: "testnodes",
+		IPv4:     iap("100.64.0.1"),
+		UserID:   0,
 		User: types.User{
 			Name: "user1",
 		},
@@ -3155,7 +2979,7 @@ func TestValidExpandTagOwnersInSources(t *testing.T) {
 		},
 	}
 
-	got, _, err := GenerateFilterAndSSHRules(pol, node, types.Nodes{})
+	got, _, err := GenerateFilterAndSSHRulesForTests(pol, node, types.Nodes{})
 	assert.NoError(t, err)
 
 	want := []tailcfg.FilterRule{
@@ -3184,10 +3008,10 @@ func TestInvalidTagValidUser(t *testing.T) {
 	}
 
 	node := &types.Node{
-		ID:          1,
-		Hostname:    "testnodes",
-		IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.1")},
-		UserID:      1,
+		ID:       1,
+		Hostname: "testnodes",
+		IPv4:     iap("100.64.0.1"),
+		UserID:   1,
 		User: types.User{
 			Name: "user1",
 		},
@@ -3206,7 +3030,7 @@ func TestInvalidTagValidUser(t *testing.T) {
 		},
 	}
 
-	got, _, err := GenerateFilterAndSSHRules(pol, node, types.Nodes{})
+	got, _, err := GenerateFilterAndSSHRulesForTests(pol, node, types.Nodes{})
 	assert.NoError(t, err)
 
 	want := []tailcfg.FilterRule{
@@ -3235,10 +3059,10 @@ func TestValidExpandTagOwnersInDestinations(t *testing.T) {
 	}
 
 	node := &types.Node{
-		ID:          1,
-		Hostname:    "testnodes",
-		IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.1")},
-		UserID:      1,
+		ID:       1,
+		Hostname: "testnodes",
+		IPv4:     iap("100.64.0.1"),
+		UserID:   1,
 		User: types.User{
 			Name: "user1",
 		},
@@ -3265,7 +3089,7 @@ func TestValidExpandTagOwnersInDestinations(t *testing.T) {
 	// c.Assert(rules[0].DstPorts, check.HasLen, 1)
 	// c.Assert(rules[0].DstPorts[0].IP, check.Equals, "100.64.0.1/32")
 
-	got, _, err := GenerateFilterAndSSHRules(pol, node, types.Nodes{})
+	got, _, err := GenerateFilterAndSSHRulesForTests(pol, node, types.Nodes{})
 	assert.NoError(t, err)
 
 	want := []tailcfg.FilterRule{
@@ -3296,10 +3120,10 @@ func TestValidTagInvalidUser(t *testing.T) {
 	}
 
 	node := &types.Node{
-		ID:          1,
-		Hostname:    "webserver",
-		IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.1")},
-		UserID:      1,
+		ID:       1,
+		Hostname: "webserver",
+		IPv4:     iap("100.64.0.1"),
+		UserID:   1,
 		User: types.User{
 			Name: "user1",
 		},
@@ -3313,10 +3137,10 @@ func TestValidTagInvalidUser(t *testing.T) {
 	}
 
 	nodes2 := &types.Node{
-		ID:          2,
-		Hostname:    "user",
-		IPAddresses: types.NodeAddresses{netip.MustParseAddr("100.64.0.2")},
-		UserID:      1,
+		ID:       2,
+		Hostname: "user",
+		IPv4:     iap("100.64.0.2"),
+		UserID:   1,
 		User: types.User{
 			Name: "user1",
 		},
@@ -3335,7 +3159,7 @@ func TestValidTagInvalidUser(t *testing.T) {
 		},
 	}
 
-	got, _, err := GenerateFilterAndSSHRules(pol, node, types.Nodes{nodes2})
+	got, _, err := GenerateFilterAndSSHRulesForTests(pol, node, types.Nodes{nodes2})
 	assert.NoError(t, err)
 
 	want := []tailcfg.FilterRule{

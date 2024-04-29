@@ -11,6 +11,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"net"
@@ -18,12 +19,14 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	v1 "github.com/juanfont/headscale/gen/go/headscale/v1"
 	"github.com/juanfont/headscale/hscontrol/policy"
+	"github.com/juanfont/headscale/hscontrol/types"
 	"github.com/juanfont/headscale/hscontrol/util"
 	"github.com/juanfont/headscale/integration/dockertestutil"
 	"github.com/juanfont/headscale/integration/integrationutil"
@@ -173,6 +176,41 @@ func WithPostgres() Option {
 	}
 }
 
+// WithIPAllocationStrategy sets the tests IP Allocation strategy.
+func WithIPAllocationStrategy(strat types.IPAllocationStrategy) Option {
+	return func(hsic *HeadscaleInContainer) {
+		hsic.env["HEADSCALE_PREFIXES_ALLOCATION"] = string(strat)
+	}
+}
+
+// WithEmbeddedDERPServerOnly configures Headscale to start
+// and only use the embedded DERP server.
+// It requires WithTLS and WithHostnameAsServerURL to be
+// set.
+func WithEmbeddedDERPServerOnly() Option {
+	return func(hsic *HeadscaleInContainer) {
+		hsic.env["HEADSCALE_DERP_URLS"] = ""
+		hsic.env["HEADSCALE_DERP_SERVER_ENABLED"] = "true"
+		hsic.env["HEADSCALE_DERP_SERVER_REGION_ID"] = "999"
+		hsic.env["HEADSCALE_DERP_SERVER_REGION_CODE"] = "headscale"
+		hsic.env["HEADSCALE_DERP_SERVER_REGION_NAME"] = "Headscale Embedded DERP"
+		hsic.env["HEADSCALE_DERP_SERVER_STUN_LISTEN_ADDR"] = "0.0.0.0:3478"
+		hsic.env["HEADSCALE_DERP_SERVER_PRIVATE_KEY_PATH"] = "/tmp/derp.key"
+
+		// Envknob for enabling DERP debug logs
+		hsic.env["DERP_DEBUG_LOGS"] = "true"
+		hsic.env["DERP_PROBER_DEBUG_LOGS"] = "true"
+	}
+}
+
+// WithTuning allows changing the tuning settings easily.
+func WithTuning(batchTimeout time.Duration, mapSessionChanSize int) Option {
+	return func(hsic *HeadscaleInContainer) {
+		hsic.env["HEADSCALE_TUNING_BATCH_CHANGE_DELAY"] = batchTimeout.String()
+		hsic.env["HEADSCALE_TUNING_NODE_MAPSESSION_BUFFERED_CHAN_SIZE"] = strconv.Itoa(mapSessionChanSize)
+	}
+}
+
 // New returns a new HeadscaleInContainer instance.
 func New(
 	pool *dockertest.Pool,
@@ -260,7 +298,7 @@ func New(
 
 	runOptions := &dockertest.RunOptions{
 		Name:         hsic.hostname,
-		ExposedPorts: append([]string{portProto}, hsic.extraPorts...),
+		ExposedPorts: append([]string{portProto, "9090/tcp"}, hsic.extraPorts...),
 		Networks:     []*dockertest.Network{network},
 		// Cmd:          []string{"headscale", "serve"},
 		// TODO(kradalby): Get rid of this hack, we currently need to give us some
@@ -359,6 +397,14 @@ func (t *HeadscaleInContainer) Shutdown() error {
 		)
 	}
 
+	err = t.SaveMetrics("/tmp/control/metrics.txt")
+	if err != nil {
+		log.Printf(
+			"Failed to metrics from control: %s",
+			err,
+		)
+	}
+
 	// Send a interrupt signal to the "headscale" process inside the container
 	// allowing it to shut down gracefully and flush the profile to disk.
 	// The container will live for a bit longer due to the sleep at the end.
@@ -409,6 +455,25 @@ func (t *HeadscaleInContainer) Shutdown() error {
 // on the host system.
 func (t *HeadscaleInContainer) SaveLog(path string) error {
 	return dockertestutil.SaveLog(t.pool, t.container, path)
+}
+
+func (t *HeadscaleInContainer) SaveMetrics(savePath string) error {
+	resp, err := http.Get(fmt.Sprintf("http://%s:9090/metrics", t.hostname))
+	if err != nil {
+		return fmt.Errorf("getting metrics: %w", err)
+	}
+	defer resp.Body.Close()
+	out, err := os.Create(savePath)
+	if err != nil {
+		return fmt.Errorf("creating file for metrics: %w", err)
+	}
+	defer out.Close()
+	_, err = io.Copy(out, resp.Body)
+	if err != nil {
+		return fmt.Errorf("copy response to file: %w", err)
+	}
+
+	return nil
 }
 
 func (t *HeadscaleInContainer) SaveProfile(savePath string) error {

@@ -273,8 +273,6 @@ func (h *Headscale) handleAuthKey(
 				Err(err).
 				Msg("Cannot encode message")
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
-			nodeRegistrations.WithLabelValues("new", util.RegisterMethodAuthKey, "error", pak.User.Name).
-				Inc()
 
 			return
 		}
@@ -293,13 +291,6 @@ func (h *Headscale) handleAuthKey(
 			Caller().
 			Str("node", registerRequest.Hostinfo.Hostname).
 			Msg("Failed authentication via AuthKey")
-
-		if pak != nil {
-			nodeRegistrations.WithLabelValues("new", util.RegisterMethodAuthKey, "error", pak.User.Name).
-				Inc()
-		} else {
-			nodeRegistrations.WithLabelValues("new", util.RegisterMethodAuthKey, "error", "unknown").Inc()
-		}
 
 		return
 	}
@@ -352,13 +343,8 @@ func (h *Headscale) handleAuthKey(
 			}
 		}
 
-		mkey := node.MachineKey
-		update := types.StateUpdateExpire(node.ID, registerRequest.Expiry)
-
-		if update.Valid() {
-			ctx := types.NotifyCtx(context.Background(), "handle-authkey", "na")
-			h.nodeNotifier.NotifyWithIgnore(ctx, update, mkey.String())
-		}
+		ctx := types.NotifyCtx(context.Background(), "handle-authkey", "na")
+		h.nodeNotifier.NotifyWithIgnore(ctx, types.StateUpdateExpire(node.ID, registerRequest.Expiry), node.ID)
 	} else {
 		now := time.Now().UTC()
 
@@ -388,7 +374,7 @@ func (h *Headscale) handleAuthKey(
 			ForcedTags:     pak.Proto().GetAclTags(),
 		}
 
-		addrs, err := h.ipAlloc.Next()
+		ipv4, ipv6, err := h.ipAlloc.Next()
 		if err != nil {
 			log.Error().
 				Caller().
@@ -402,22 +388,20 @@ func (h *Headscale) handleAuthKey(
 
 		node, err = h.db.RegisterNode(
 			nodeToRegister,
-			addrs,
+			ipv4, ipv6,
 		)
 		if err != nil {
 			log.Error().
 				Caller().
 				Err(err).
 				Msg("could not register node")
-			nodeRegistrations.WithLabelValues("new", util.RegisterMethodAuthKey, "error", pak.User.Name).
-				Inc()
 			http.Error(writer, "Internal server error", http.StatusInternalServerError)
 
 			return
 		}
 	}
 
-	err = h.db.DB.Transaction(func(tx *gorm.DB) error {
+	h.db.Write(func(tx *gorm.DB) error {
 		return db.UsePreAuthKey(tx, pak)
 	})
 	if err != nil {
@@ -425,8 +409,6 @@ func (h *Headscale) handleAuthKey(
 			Caller().
 			Err(err).
 			Msg("Failed to use pre-auth key")
-		nodeRegistrations.WithLabelValues("new", util.RegisterMethodAuthKey, "error", pak.User.Name).
-			Inc()
 		http.Error(writer, "Internal server error", http.StatusInternalServerError)
 
 		return
@@ -445,14 +427,10 @@ func (h *Headscale) handleAuthKey(
 			Str("node", registerRequest.Hostinfo.Hostname).
 			Err(err).
 			Msg("Cannot encode message")
-		nodeRegistrations.WithLabelValues("new", util.RegisterMethodAuthKey, "error", pak.User.Name).
-			Inc()
 		http.Error(writer, "Internal server error", http.StatusInternalServerError)
 
 		return
 	}
-	nodeRegistrations.WithLabelValues("new", util.RegisterMethodAuthKey, "success", pak.User.Name).
-		Inc()
 	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	writer.WriteHeader(http.StatusOK)
 	_, err = writer.Write(respBody)
@@ -466,7 +444,6 @@ func (h *Headscale) handleAuthKey(
 
 	log.Info().
 		Str("node", registerRequest.Hostinfo.Hostname).
-		Str("ips", strings.Join(node.IPAddresses.StringSlice(), ", ")).
 		Msg("Successfully authenticated via AuthKey")
 }
 
@@ -538,11 +515,8 @@ func (h *Headscale) handleNodeLogOut(
 		return
 	}
 
-	stateUpdate := types.StateUpdateExpire(node.ID, now)
-	if stateUpdate.Valid() {
-		ctx := types.NotifyCtx(context.Background(), "logout-expiry", "na")
-		h.nodeNotifier.NotifyWithIgnore(ctx, stateUpdate, node.MachineKey.String())
-	}
+	ctx := types.NotifyCtx(context.Background(), "logout-expiry", "na")
+	h.nodeNotifier.NotifyWithIgnore(ctx, types.StateUpdateExpire(node.ID, now), node.ID)
 
 	resp.AuthURL = ""
 	resp.MachineAuthorized = false
@@ -572,7 +546,7 @@ func (h *Headscale) handleNodeLogOut(
 	}
 
 	if node.IsEphemeral() {
-		err = h.db.DeleteNode(&node, h.nodeNotifier.ConnectedMap())
+		changedNodes, err := h.db.DeleteNode(&node, h.nodeNotifier.LikelyConnectedMap())
 		if err != nil {
 			log.Error().
 				Err(err).
@@ -580,13 +554,16 @@ func (h *Headscale) handleNodeLogOut(
 				Msg("Cannot delete ephemeral node from the database")
 		}
 
-		stateUpdate := types.StateUpdate{
+		ctx := types.NotifyCtx(context.Background(), "logout-ephemeral", "na")
+		h.nodeNotifier.NotifyAll(ctx, types.StateUpdate{
 			Type:    types.StatePeerRemoved,
-			Removed: []tailcfg.NodeID{tailcfg.NodeID(node.ID)},
-		}
-		if stateUpdate.Valid() {
-			ctx := types.NotifyCtx(context.Background(), "logout-ephemeral", "na")
-			h.nodeNotifier.NotifyAll(ctx, stateUpdate)
+			Removed: []types.NodeID{node.ID},
+		})
+		if changedNodes != nil {
+			h.nodeNotifier.NotifyAll(ctx, types.StateUpdate{
+				Type:        types.StatePeerChanged,
+				ChangeNodes: changedNodes,
+			})
 		}
 
 		return
@@ -622,14 +599,10 @@ func (h *Headscale) handleNodeWithValidRegistration(
 			Caller().
 			Err(err).
 			Msg("Cannot encode message")
-		nodeRegistrations.WithLabelValues("update", "web", "error", node.User.Name).
-			Inc()
 		http.Error(writer, "Internal server error", http.StatusInternalServerError)
 
 		return
 	}
-	nodeRegistrations.WithLabelValues("update", "web", "success", node.User.Name).
-		Inc()
 
 	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	writer.WriteHeader(http.StatusOK)
@@ -660,7 +633,7 @@ func (h *Headscale) handleNodeKeyRefresh(
 		Str("node", node.Hostname).
 		Msg("We have the OldNodeKey in the database. This is a key refresh")
 
-	err := h.db.DB.Transaction(func(tx *gorm.DB) error {
+	err := h.db.Write(func(tx *gorm.DB) error {
 		return db.NodeSetNodeKey(tx, &node, registerRequest.NodeKey)
 	})
 	if err != nil {
@@ -743,14 +716,10 @@ func (h *Headscale) handleNodeExpiredOrLoggedOut(
 			Caller().
 			Err(err).
 			Msg("Cannot encode message")
-		nodeRegistrations.WithLabelValues("reauth", "web", "error", node.User.Name).
-			Inc()
 		http.Error(writer, "Internal server error", http.StatusInternalServerError)
 
 		return
 	}
-	nodeRegistrations.WithLabelValues("reauth", "web", "success", node.User.Name).
-		Inc()
 
 	writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	writer.WriteHeader(http.StatusOK)

@@ -31,6 +31,13 @@ var errOidcMutuallyExclusive = errors.New(
 	"oidc_client_secret and oidc_client_secret_path are mutually exclusive",
 )
 
+type IPAllocationStrategy string
+
+const (
+	IPAllocationStrategySequential IPAllocationStrategy = "sequential"
+	IPAllocationStrategyRandom     IPAllocationStrategy = "random"
+)
+
 // Config contains the initial Headscale configuration.
 type Config struct {
 	ServerURL                      string
@@ -39,9 +46,9 @@ type Config struct {
 	GRPCAddr                       string
 	GRPCAllowInsecure              bool
 	EphemeralNodeInactivityTimeout time.Duration
-	NodeUpdateCheckInterval        time.Duration
 	PrefixV4                       *netip.Prefix
 	PrefixV6                       *netip.Prefix
+	IPAllocation                   IPAllocationStrategy
 	NoisePrivateKeyPath            string
 	BaseDomain                     string
 	Log                            LogConfig
@@ -69,6 +76,8 @@ type Config struct {
 	CLI CLIConfig
 
 	ACL ACLConfig
+
+	Tuning Tuning
 }
 
 type SqliteConfig struct {
@@ -161,6 +170,11 @@ type LogConfig struct {
 	Level  zerolog.Level
 }
 
+type Tuning struct {
+	BatchChangeDelay               time.Duration
+	NodeMapSessionBufferedChanSize int
+}
+
 func LoadConfig(path string, isFile bool) error {
 	if isFile {
 		viper.SetConfigFile(path)
@@ -218,7 +232,10 @@ func LoadConfig(path string, isFile bool) error {
 
 	viper.SetDefault("ephemeral_node_inactivity_timeout", "120s")
 
-	viper.SetDefault("node_update_check_interval", "10s")
+	viper.SetDefault("tuning.batch_change_delay", "800ms")
+	viper.SetDefault("tuning.node_mapsession_buffered_chan_size", 30)
+
+	viper.SetDefault("prefixes.allocation", string(IPAllocationStrategySequential))
 
 	if IsCLIConfigured() {
 		return nil
@@ -267,15 +284,6 @@ func LoadConfig(path string, isFile bool) error {
 			"Fatal config error: ephemeral_node_inactivity_timeout (%s) is set too low, must be more than %s",
 			viper.GetString("ephemeral_node_inactivity_timeout"),
 			minInactivityTimeout,
-		)
-	}
-
-	maxNodeUpdateCheckInterval, _ := time.ParseDuration("60s")
-	if viper.GetDuration("node_update_check_interval") > maxNodeUpdateCheckInterval {
-		errorText += fmt.Sprintf(
-			"Fatal config error: node_update_check_interval (%s) is set too high, must be less than %s",
-			viper.GetString("node_update_check_interval"),
-			maxNodeUpdateCheckInterval,
 		)
 	}
 
@@ -569,18 +577,16 @@ func GetDNSConfig() (*tailcfg.DNSConfig, string) {
 	return nil, ""
 }
 
-func Prefixes() (*netip.Prefix, *netip.Prefix, error) {
+func PrefixV4() (*netip.Prefix, error) {
 	prefixV4Str := viper.GetString("prefixes.v4")
-	prefixV6Str := viper.GetString("prefixes.v6")
+
+	if prefixV4Str == "" {
+		return nil, nil
+	}
 
 	prefixV4, err := netip.ParsePrefix(prefixV4Str)
 	if err != nil {
-		return nil, nil, err
-	}
-
-	prefixV6, err := netip.ParsePrefix(prefixV6Str)
-	if err != nil {
-		return nil, nil, err
+		return nil, fmt.Errorf("parsing IPv4 prefix from config: %w", err)
 	}
 
 	builder := netipx.IPSetBuilder{}
@@ -593,13 +599,33 @@ func Prefixes() (*netip.Prefix, *netip.Prefix, error) {
 				prefixV4Str, tsaddr.CGNATRange())
 	}
 
+	return &prefixV4, nil
+}
+
+func PrefixV6() (*netip.Prefix, error) {
+	prefixV6Str := viper.GetString("prefixes.v6")
+
+	if prefixV6Str == "" {
+		return nil, nil
+	}
+
+	prefixV6, err := netip.ParsePrefix(prefixV6Str)
+	if err != nil {
+		return nil, fmt.Errorf("parsing IPv6 prefix from config: %w", err)
+	}
+
+	builder := netipx.IPSetBuilder{}
+	builder.AddPrefix(tsaddr.CGNATRange())
+	builder.AddPrefix(tsaddr.TailscaleULARange())
+	ipSet, _ := builder.IPSet()
+
 	if !ipSet.ContainsPrefix(prefixV6) {
 		log.Warn().
 			Msgf("Prefix %s is not in the %s range. This is an unsupported configuration.",
 				prefixV6Str, tsaddr.TailscaleULARange())
 	}
 
-	return &prefixV4, &prefixV6, nil
+	return &prefixV6, nil
 }
 
 func GetHeadscaleConfig() (*Config, error) {
@@ -614,9 +640,25 @@ func GetHeadscaleConfig() (*Config, error) {
 		}, nil
 	}
 
-	prefix4, prefix6, err := Prefixes()
+	prefix4, err := PrefixV4()
 	if err != nil {
 		return nil, err
+	}
+
+	prefix6, err := PrefixV6()
+	if err != nil {
+		return nil, err
+	}
+
+	allocStr := viper.GetString("prefixes.allocation")
+	var alloc IPAllocationStrategy
+	switch allocStr {
+	case string(IPAllocationStrategySequential):
+		alloc = IPAllocationStrategySequential
+	case string(IPAllocationStrategyRandom):
+		alloc = IPAllocationStrategyRandom
+	default:
+		log.Fatal().Msgf("config error, prefixes.allocation is set to %s, which is not a valid strategy, allowed options: %s, %s", allocStr, IPAllocationStrategySequential, IPAllocationStrategyRandom)
 	}
 
 	dnsConfig, baseDomain := GetDNSConfig()
@@ -645,8 +687,9 @@ func GetHeadscaleConfig() (*Config, error) {
 		GRPCAllowInsecure:  viper.GetBool("grpc_allow_insecure"),
 		DisableUpdateCheck: viper.GetBool("disable_check_updates"),
 
-		PrefixV4: prefix4,
-		PrefixV6: prefix6,
+		PrefixV4:     prefix4,
+		PrefixV6:     prefix6,
+		IPAllocation: IPAllocationStrategy(alloc),
 
 		NoisePrivateKeyPath: util.AbsolutePathFromConfigPath(
 			viper.GetString("noise.private_key_path"),
@@ -657,10 +700,6 @@ func GetHeadscaleConfig() (*Config, error) {
 
 		EphemeralNodeInactivityTimeout: viper.GetDuration(
 			"ephemeral_node_inactivity_timeout",
-		),
-
-		NodeUpdateCheckInterval: viper.GetDuration(
-			"node_update_check_interval",
 		),
 
 		Database: GetDatabaseConfig(),
@@ -719,6 +758,12 @@ func GetHeadscaleConfig() (*Config, error) {
 		},
 
 		Log: GetLogConfig(),
+
+		// TODO(kradalby): Document these settings when more stable
+		Tuning: Tuning{
+			BatchChangeDelay:               viper.GetDuration("tuning.batch_change_delay"),
+			NodeMapSessionBufferedChanSize: viper.GetInt("tuning.node_mapsession_buffered_chan_size"),
+		},
 	}, nil
 }
 
